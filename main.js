@@ -449,6 +449,7 @@ class WorkTaskBoardView extends ItemView {
     this.filePath = "";
     this.search = "";
     this.filter = "all";
+    this.renderSeq = 0;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -471,11 +472,13 @@ class WorkTaskBoardView extends ItemView {
   async onOpen() { await this.render(); }
 
   async render() {
+    const seq = ++this.renderSeq;
     const container = this.containerEl.children[1];
+    const board = await this.loadBoard();
+    if (seq !== this.renderSeq) return;
+
     container.empty();
     container.addClass("wtb-board-view");
-
-    const board = await this.loadBoard();
     if (!board) return container.createEl("p", { text: "Board file not found." });
 
     this.renderToolbar(container, board);
@@ -551,7 +554,6 @@ class WorkTaskBoardView extends ItemView {
         column.removeClass("is-drag-over");
         const task = JSON.parse(event.dataTransfer.getData("application/json"));
         await this.plugin.moveTask(task, status);
-        await this.render();
       });
 
       const header = column.createDiv({ cls: "wtb-column-header" });
