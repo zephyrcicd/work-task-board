@@ -71,7 +71,8 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
     if (!dueDate) return new Notice("Use a valid due date: YYYY-MM-DD");
     const route = this.getRoute(dueDate);
     const boardFile = await this.ensureWeeklyBoard(route);
-    await this.insertTaskIntoStatus(boardFile, this.settings.inboxStatus, this.formatTaskLine(task, this.settings.inboxStatus));
+    const targetStatus = task.status || this.settings.inboxStatus;
+    await this.insertTaskIntoStatus(boardFile, targetStatus, this.formatTaskLine(this.withCompletionDate(null, task, targetStatus), targetStatus));
     await this.ensureDashboard();
     await this.refreshBoardViewsForFile(boardFile);
     const destination = `${route.monthName}/${route.weekName}.md`;
@@ -98,24 +99,53 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
     const currentFile = this.app.vault.getAbstractFileByPath(task.filePath);
     if (!currentFile) return new Notice("Original task file not found");
 
+    const targetStatus = values.status || task.status;
+    const nextLine = this.formatTaskLine(this.withCompletionDate(task, values, targetStatus), targetStatus, task.indent || 0);
+
+    if ((task.depth || 1) > 1) {
+      await this.replaceTaskLine(currentFile, task, nextLine);
+      await this.ensureDashboard();
+      return;
+    }
+
     const targetRoute = this.getRoute(dueDate);
     const targetFile = await this.ensureWeeklyBoard(targetRoute);
-    const targetStatus = values.status || task.status;
-    const nextLine = this.formatTaskLine(values, targetStatus);
-
     if (targetFile.path === task.filePath) {
       await this.replaceTaskLine(currentFile, task, nextLine);
     } else {
-      await this.removeTaskLine(currentFile, task);
-      await this.insertTaskIntoStatus(targetFile, targetStatus, nextLine);
+      const subtree = await this.removeTaskSubtree(currentFile, task);
+      if (!subtree) return;
+      subtree[0] = nextLine;
+      await this.insertTaskIntoStatus(targetFile, targetStatus, subtree.join("\n"));
     }
     await this.ensureDashboard();
+  }
+
+  async createSubtask(parentTask, values) {
+    if ((parentTask.depth || 1) >= 3) return new Notice("Nested tasks support up to three levels");
+    const dueDate = parseDate(values.dueDate);
+    if (!dueDate) return new Notice("Use a valid due date: YYYY-MM-DD");
+    const file = this.app.vault.getAbstractFileByPath(parentTask.filePath);
+    if (!file) return new Notice("Parent task file not found");
+    const lines = (await this.app.vault.read(file)).split("\n");
+    const line = this.resolveTaskLine(lines, parentTask);
+    if (!line) return new Notice("Parent task moved or changed; reload the board and try again");
+    const childStatus = values.status || this.settings.inboxStatus;
+    const childLine = this.formatTaskLine(this.withCompletionDate(null, values, childStatus), childStatus, (parentTask.indent || 0) + 2);
+    lines.splice(line.endIndex + 1, 0, childLine);
+    await this.app.vault.modify(file, lines.join("\n"));
+    await this.ensureDashboard();
+  }
+
+  withCompletionDate(task, values, status) {
+    const done = status === this.settings.doneStatus;
+    return Object.assign({}, values, { completionDate: done ? (values.completionDate || task?.completionDate || formatDate(new Date())) : "" });
   }
 
   async deleteTask(task) {
     const file = this.app.vault.getAbstractFileByPath(task.filePath);
     if (!file) return;
-    await this.removeTaskLine(file, task);
+    await this.removeTaskSubtree(file, task);
   }
 
   async moveTask(task, targetStatus) {
@@ -125,10 +155,10 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
     const lines = content.split("\n");
     const line = this.resolveTaskLine(lines, task);
     if (!line) return new Notice("Task moved or changed; reload the board and try again");
-    lines.splice(line.index, 1);
-    const targetLine = convertTaskStatus(line.value, targetStatus, this.settings);
+    const subtree = lines.splice(line.index, line.endIndex - line.index + 1);
+    subtree[0] = convertTaskStatus(subtree[0], targetStatus, this.settings);
     const headingIndex = lines.findIndex((item) => item.trim() === `## ${targetStatus}`);
-    lines.splice(headingIndex + 1, 0, targetLine);
+    lines.splice(headingIndex + 1, 0, ...subtree);
     await this.app.vault.modify(file, lines.join("\n"));
   }
 
@@ -148,10 +178,22 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
     await this.app.vault.modify(file, lines.join("\n"));
   }
 
+  async removeTaskSubtree(file, task) {
+    const lines = (await this.app.vault.read(file)).split("\n");
+    const line = this.resolveTaskLine(lines, task);
+    if (!line) {
+      new Notice("Task moved or changed; reload the board and try again");
+      return null;
+    }
+    const removed = lines.splice(line.index, line.endIndex - line.index + 1);
+    await this.app.vault.modify(file, lines.join("\n"));
+    return removed;
+  }
+
   resolveTaskLine(lines, task) {
-    if (lines[task.lineIndex] === task.raw) return { index: task.lineIndex, value: task.raw };
-    const index = lines.findIndex((line) => line === task.raw);
-    return index >= 0 ? { index, value: lines[index] } : null;
+    const index = lines[task.lineIndex] === task.raw ? task.lineIndex : lines.findIndex((line) => line === task.raw);
+    if (index < 0) return null;
+    return { index, endIndex: findTaskSubtreeEnd(lines, index, task.indent || 0), value: lines[index] };
   }
 
   getRoute(date) {
@@ -247,13 +289,14 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
     return this.isBoardFile(file) || this.isDashboardFile(file);
   }
 
-  formatTaskLine(task, status) {
+  formatTaskLine(task, status, indent = 0) {
     const title = task.title.trim().replace(/\s+/g, " ");
     const note = (task.note || "").trim().replace(/\s+/g, " ");
     const noteText = note ? ` — ${note}` : "";
     const assigneeText = normalizeAssignees(task.assignees || task.assignee).map((assignee) => ` @${assignee}`).join("");
     const startText = task.startDate ? ` 🛫 ${task.startDate}` : "";
-    return `- [${statusMark(status, this.settings)}] ${title}${noteText}${assigneeText}${startText} 📅 ${task.dueDate}`;
+    const completionText = task.completionDate ? ` ✅ ${task.completionDate}` : "";
+    return `${" ".repeat(indent)}- [${statusMark(status, this.settings)}] ${title}${noteText}${assigneeText}${startText}${completionText} 📅 ${task.dueDate}`;
   }
 
   async refreshBoardViewsForFile(file, oldPath = "") {
@@ -499,7 +542,7 @@ class WorkTaskBoardView extends ItemView {
   renderColumns(container, board) {
     const columns = container.createDiv({ cls: "wtb-board-columns" });
     for (const status of this.plugin.statusNames()) {
-      const tasks = board.tasks[status].filter((task) => this.shouldShowTask(task));
+      const tasks = board.tasks[status].filter((task) => this.shouldShowTaskTree(task));
       const column = columns.createDiv({ cls: "wtb-board-column", attr: { "data-status": status } });
       column.addEventListener("dragover", (event) => { event.preventDefault(); column.addClass("is-drag-over"); });
       column.addEventListener("dragleave", () => column.removeClass("is-drag-over"));
@@ -513,7 +556,7 @@ class WorkTaskBoardView extends ItemView {
 
       const header = column.createDiv({ cls: "wtb-column-header" });
       header.createEl("h3", { text: status });
-      header.createSpan({ text: String(tasks.length) });
+      header.createSpan({ text: String(countVisibleLeafTasks(tasks, (task) => this.shouldShowTask(task))) });
       const stack = column.createDiv({ cls: "wtb-card-stack" });
       if (tasks.length === 0) stack.createDiv({ cls: "wtb-empty-column", text: "No cards" });
       for (const task of tasks) this.renderTaskCard(stack, task);
@@ -521,23 +564,49 @@ class WorkTaskBoardView extends ItemView {
   }
 
   renderTaskCard(container, task) {
-    const card = container.createDiv({ cls: "wtb-task-card", attr: { draggable: "true" } });
-    card.addEventListener("dragstart", (event) => {
-      card.addClass("is-dragging");
-      event.dataTransfer.setData("application/json", JSON.stringify(task));
-      event.dataTransfer.effectAllowed = "move";
-    });
-    card.addEventListener("dragend", () => card.removeClass("is-dragging"));
-    card.addEventListener("click", () => this.plugin.openEditModal(task));
+    const card = container.createDiv({ cls: "wtb-task-card", attr: { draggable: String((task.depth || 1) === 1) } });
+    if ((task.depth || 1) === 1) {
+      card.addEventListener("dragstart", (event) => {
+        card.addClass("is-dragging");
+        event.dataTransfer.setData("application/json", JSON.stringify(task));
+        event.dataTransfer.effectAllowed = "move";
+      });
+      card.addEventListener("dragend", () => card.removeClass("is-dragging"));
+    }
+    this.renderTaskNode(card, task);
+  }
 
-    card.createEl("p", { cls: "wtb-task-title", text: task.title });
-    if (task.note) card.createEl("p", { cls: "wtb-task-note", text: task.note });
-    const meta = card.createDiv({ cls: "wtb-task-meta" });
+  renderTaskNode(container, task) {
+    const node = container.createDiv({ cls: `wtb-task-node depth-${task.depth || 1}` });
+    node.addEventListener("click", (event) => { event.stopPropagation(); this.plugin.openEditModal(task); });
+
+    const titleRow = node.createDiv({ cls: "wtb-task-title-row" });
+    titleRow.createEl("p", { cls: "wtb-task-title", text: task.title });
+    if ((task.depth || 1) < 3) {
+      titleRow.createEl("button", { cls: "wtb-subtask-button", text: "+ Subtask" }).addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.plugin.openTaskModal({
+          parentTask: task,
+          startDate: task.startDate || formatDate(new Date()),
+          dueDate: task.dueDate || formatDate(new Date()),
+          assignees: task.assignees,
+          status: this.plugin.settings.inboxStatus,
+        });
+      });
+    }
+    if (task.note) node.createEl("p", { cls: "wtb-task-note", text: task.note });
+    const meta = node.createDiv({ cls: "wtb-task-meta" });
     if (task.startDate) meta.createSpan({ text: `🛫 ${task.startDate}` });
+    if (task.completionDate) meta.createSpan({ text: `✅ ${task.completionDate}` });
     meta.createSpan({ text: `📅 ${task.dueDate || "No due date"}` });
+    if (task.children.length) meta.createSpan({ text: `${countCompletedLeafTasks(task)}/${countLeafTasks(task)} done` });
     for (const assignee of task.assignees.slice(0, 3)) meta.createSpan({ text: `@${assignee}` });
     if (task.assignees.length > 3) meta.createSpan({ text: `+${task.assignees.length - 3}` });
     if (this.mode === "dashboard") meta.createSpan({ text: task.fileLabel });
+    if (task.children.length) {
+      const children = node.createDiv({ cls: "wtb-subtask-list" });
+      for (const child of task.children.filter((item) => this.shouldShowTaskTree(item))) this.renderTaskNode(children, child);
+    }
   }
 
   shouldShowTask(task) {
@@ -548,6 +617,10 @@ class WorkTaskBoardView extends ItemView {
     if (this.filter === "overdue") return task.dueDate && task.dueDate < formatDate(new Date()) && task.status !== this.plugin.settings.doneStatus;
     if (this.filter === "this-week") return isThisWeek(task.dueDate);
     return true;
+  }
+
+  shouldShowTaskTree(task) {
+    return this.shouldShowTask(task) || task.children.some((child) => this.shouldShowTaskTree(child));
   }
 
   getNewTaskDefaults() {
@@ -566,12 +639,14 @@ class WorkTaskModal extends Modal {
     super(app);
     this.plugin = plugin;
     this.task = initial.raw ? initial : null;
+    this.parentTask = initial.parentTask || null;
     this.title = initial.title || "";
     this.startDate = initial.startDate || formatDate(new Date());
     this.dueDate = initial.dueDate || formatDate(new Date());
     this.assignees = normalizeAssignees(initial.assignees || initial.assignee);
     this.note = initial.note || "";
     this.status = initial.status || plugin.settings.inboxStatus;
+    this.completionDate = initial.completionDate || "";
   }
 
   onOpen() {
@@ -580,7 +655,7 @@ class WorkTaskModal extends Modal {
     contentEl.addClass("wtb-modal");
     const header = contentEl.createDiv({ cls: "wtb-modal-header" });
     header.createEl("p", { cls: "wtb-kicker", text: "Work Task Board" });
-    header.createEl("h2", { text: this.task ? "Edit card" : "Route a task" });
+    header.createEl("h2", { text: this.task ? "Edit card" : (this.parentTask ? "Add subtask" : "Route a task") });
     header.createEl("p", { cls: "wtb-modal-copy", text: "Markdown stays as the source of truth; the board edits the task line." });
 
     new Setting(contentEl).setName("Task").setDesc("What needs to be done?").addText((text) => {
@@ -624,6 +699,11 @@ class WorkTaskModal extends Modal {
       for (const status of this.plugin.statusNames()) dropdown.addOption(status, status);
       dropdown.setValue(this.status).onChange((value) => { this.status = value; });
     });
+    new Setting(contentEl).setName("Completion date").setDesc("Set automatically when status is Done. Format: YYYY-MM-DD.").addText((text) => {
+      text.setValue(this.completionDate);
+      text.inputEl.type = "date";
+      text.onChange((value) => { this.completionDate = value; });
+    });
     new Setting(contentEl).setName("Note").setDesc("Optional context appended after an em dash.").addTextArea((text) => {
       text.setPlaceholder("Stakeholder, link, or acceptance note").setValue(this.note);
       text.onChange((value) => { this.note = value; });
@@ -632,7 +712,9 @@ class WorkTaskModal extends Modal {
     const routePreview = contentEl.createDiv({ cls: "wtb-route-preview" });
     const updatePreview = () => {
       const dueDate = parseDate(this.dueDate);
-      routePreview.setText(dueDate ? `${this.plugin.getRoute(dueDate).monthName} / ${this.plugin.getRoute(dueDate).weekName} / ${this.status}` : "Invalid date");
+      if (!dueDate) return routePreview.setText("Invalid date");
+      if (this.parentTask) return routePreview.setText(`${this.parentTask.fileLabel} / subtask / ${this.status}`);
+      routePreview.setText(`${this.plugin.getRoute(dueDate).monthName} / ${this.plugin.getRoute(dueDate).weekName} / ${this.status}`);
     };
     updatePreview();
     contentEl.querySelectorAll("input, select").forEach((input) => input.addEventListener("input", updatePreview));
@@ -657,8 +739,9 @@ class WorkTaskModal extends Modal {
       this.titleInput.focus();
       return;
     }
-    const values = { title: this.title, startDate: this.startDate, dueDate: this.dueDate, assignees: this.assignees, note: this.note, status: this.status };
+    const values = { title: this.title, startDate: this.startDate, dueDate: this.dueDate, assignees: this.assignees, note: this.note, status: this.status, completionDate: this.completionDate };
     if (this.task) await this.plugin.updateTask(this.task, values);
+    else if (this.parentTask) await this.plugin.createSubtask(this.parentTask, values);
     else await this.plugin.createTask(values);
     this.close();
   }
@@ -711,34 +794,56 @@ function parseBoard(content, file, statuses) {
   const lines = content.split("\n");
   const board = { title: lines.find((line) => line.startsWith("# "))?.replace(/^#\s+/, "") || file.basename, mode: "board", tasks: emptyTasks(statuses) };
   let current = "";
+  let stack = [];
   lines.forEach((line, index) => {
     const heading = line.match(/^##\s+(.+)\s*$/);
-    if (heading) current = statuses.includes(heading[1]) ? heading[1] : "";
-    if (current && /^- \[[ x/-]\]\s+/.test(line)) board.tasks[current].push(parseTask(line, index, current, file));
+    if (heading) {
+      current = statuses.includes(heading[1]) ? heading[1] : "";
+      stack = [];
+      return;
+    }
+    const taskMatch = line.match(/^(\s*)- \[([ x/-])\]\s+/);
+    if (!current || !taskMatch) return;
+    const indent = taskMatch[1].length;
+    const depth = Math.floor(indent / 2) + 1;
+    if (depth > 3) return;
+    const task = parseTask(line, index, current, file, statuses, indent, depth, taskMatch[2]);
+    while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+    if (stack.length) stack[stack.length - 1].children.push(task);
+    else board.tasks[current].push(task);
+    stack.push(task);
   });
   return board;
 }
 
-function parseTask(line, lineIndex, status, file) {
-  const withoutCheckbox = line.replace(/^- \[[ x/-]\]\s*/, "");
+function parseTask(line, lineIndex, sectionStatus, file, statuses, indent, depth, mark) {
+  const withoutCheckbox = line.replace(/^\s*- \[[ x/-]\]\s*/, "");
   const dueDate = withoutCheckbox.match(/📅\s*(\d{4}-\d{2}-\d{2})/)?.[1] || "";
   const startDate = withoutCheckbox.match(/🛫\s*(\d{4}-\d{2}-\d{2})/)?.[1] || "";
-  const assignees = Array.from(withoutCheckbox.matchAll(/(?:^|\s)@([^\s@📅🛫]+)/g)).map((match) => match[1]);
+  const completionDate = withoutCheckbox.match(/✅\s*(\d{4}-\d{2}-\d{2})/)?.[1] || "";
+  const assignees = Array.from(withoutCheckbox.matchAll(/(?:^|\s)@([^\s@📅🛫✅]+)/g)).map((match) => match[1]);
   const withoutMeta = withoutCheckbox
     .replace(/\s*📅\s*\d{4}-\d{2}-\d{2}/, "")
     .replace(/\s*🛫\s*\d{4}-\d{2}-\d{2}/, "")
-    .replace(/(?:^|\s)@([^\s@📅🛫]+)/g, "")
+    .replace(/\s*✅\s*\d{4}-\d{2}-\d{2}/, "")
+    .replace(/(?:^|\s)@([^\s@📅🛫✅]+)/g, "")
     .trim();
   const [title, ...noteParts] = withoutMeta.split(" — ");
   return {
     raw: line,
     lineIndex,
-    status,
+    sectionStatus,
+    status: statusFromMark(mark, statuses),
+    done: mark === "x",
     title: title.trim(),
     note: noteParts.join(" — ").trim(),
     assignees,
     startDate,
+    completionDate,
     dueDate,
+    indent,
+    depth,
+    children: [],
     filePath: file.path,
     fileLabel: file.path.split("/").slice(-2).join("/"),
   };
@@ -762,13 +867,54 @@ function insertUnderHeading(content, heading, line) {
 }
 
 function convertTaskStatus(line, targetStatus, settings) {
-  return line.replace(/^- \[[ x/-]\]/, `- [${statusMark(targetStatus, settings)}]`);
+  let next = line.replace(/^(\s*)- \[[ x/-]\]/, `$1- [${statusMark(targetStatus, settings)}]`);
+  if (targetStatus === settings.doneStatus) {
+    if (/✅\s*\d{4}-\d{2}-\d{2}/.test(next)) return next;
+    return next.replace(/\s*📅\s*/, ` ✅ ${formatDate(new Date())} 📅 `);
+  }
+  return next.replace(/\s*✅\s*\d{4}-\d{2}-\d{2}/, "");
 }
 
 function statusMark(status, settings) {
   if (status === settings.doneStatus) return "x";
   if (status === settings.doingStatus) return "/";
   return " ";
+}
+
+function statusFromMark(mark, statuses) {
+  if (mark === "x") return statuses[2];
+  if (mark === "/") return statuses[1];
+  return statuses[0];
+}
+
+function findTaskSubtreeEnd(lines, index, indent) {
+  let end = index;
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const match = lines[cursor].match(/^(\s*)- \[[ x/-]\]\s+/);
+    if (match && match[1].length <= indent) break;
+    if (/^##\s+/.test(lines[cursor])) break;
+    end = cursor;
+  }
+  return end;
+}
+
+function countLeafTasks(task) {
+  if (!task.children.length) return 1;
+  return task.children.reduce((total, child) => total + countLeafTasks(child), 0);
+}
+
+function countCompletedLeafTasks(task) {
+  if (!task.children.length) return task.done || task.completionDate ? 1 : 0;
+  return task.children.reduce((total, child) => total + countCompletedLeafTasks(child), 0);
+}
+
+function countVisibleLeafTasks(tasks, predicate) {
+  return tasks.reduce((total, task) => total + countVisibleLeafTasksForNode(task, predicate), 0);
+}
+
+function countVisibleLeafTasksForNode(task, predicate) {
+  if (!task.children.length) return predicate(task) ? 1 : 0;
+  return task.children.reduce((total, child) => total + countVisibleLeafTasksForNode(child, predicate), 0);
 }
 
 function compareTasksByDueDate(a, b) {
