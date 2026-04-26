@@ -1,0 +1,10 @@
+{
+  "id": "work-task-board",
+  "name": "Work Task Board",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Route work tasks into monthly and weekly Markdown kanban boards from a quick command or ribbon action.",
+  "author": "Zephyr",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
