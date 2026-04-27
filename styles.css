@@ -162,6 +162,42 @@
   flex: 0 0 150px;
 }
 
+.wtb-assignee-filter {
+  display: flex;
+  align-items: center;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.wtb-assignee-filter-label {
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wtb-assignee-chip,
+.wtb-assignee-clear {
+  height: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.wtb-assignee-chip.is-selected {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+
+.wtb-assignee-clear {
+  color: var(--text-muted);
+}
+
 .wtb-board-columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));

@@ -449,6 +449,7 @@ class WorkTaskBoardView extends ItemView {
     this.filePath = "";
     this.search = "";
     this.filter = "all";
+    this.selectedAssignees = [];
     this.renderSeq = 0;
   }
 
@@ -482,7 +483,7 @@ class WorkTaskBoardView extends ItemView {
     if (!board) return container.createEl("p", { text: "Board file not found." });
 
     this.renderToolbar(container, board);
-    this.renderFilters(container);
+    this.renderFilters(container, board);
     this.renderColumns(container, board);
   }
 
@@ -525,7 +526,7 @@ class WorkTaskBoardView extends ItemView {
     }
   }
 
-  renderFilters(container) {
+  renderFilters(container, board) {
     const filters = container.createDiv({ cls: "wtb-board-filters" });
     const search = filters.createEl("input", { attr: { type: "search", placeholder: "Search cards" } });
     search.value = this.search;
@@ -540,6 +541,36 @@ class WorkTaskBoardView extends ItemView {
     ].forEach(([value, label]) => select.createEl("option", { value, text: label }));
     select.value = this.filter;
     select.addEventListener("change", async () => { this.filter = select.value; await this.rerenderColumns(); });
+
+    const assignees = boardAssignees(board, this.plugin.statusNames());
+    if (assignees.length) {
+      const assigneeFilter = filters.createDiv({ cls: "wtb-assignee-filter" });
+      assigneeFilter.createSpan({ cls: "wtb-assignee-filter-label", text: "Assignees" });
+      for (const assignee of assignees) {
+        const selected = this.selectedAssignees.includes(assignee);
+        const chip = assigneeFilter.createEl("button", { cls: selected ? "wtb-assignee-chip is-selected" : "wtb-assignee-chip", text: `@${assignee}` });
+        chip.addEventListener("click", async () => {
+          this.toggleAssigneeFilter(assignee);
+          chip.classList.toggle("is-selected", this.selectedAssignees.includes(assignee));
+          clearButton.disabled = this.selectedAssignees.length === 0;
+          await this.rerenderColumns();
+        });
+      }
+      const clearButton = assigneeFilter.createEl("button", { cls: "wtb-assignee-clear", text: "Clear" });
+      clearButton.disabled = this.selectedAssignees.length === 0;
+      clearButton.addEventListener("click", async () => {
+        this.selectedAssignees = [];
+        assigneeFilter.querySelectorAll(".wtb-assignee-chip").forEach((chip) => chip.classList.remove("is-selected"));
+        clearButton.disabled = true;
+        await this.rerenderColumns();
+      });
+    }
+  }
+
+  toggleAssigneeFilter(assignee) {
+    this.selectedAssignees = this.selectedAssignees.includes(assignee)
+      ? this.selectedAssignees.filter((item) => item !== assignee)
+      : [...this.selectedAssignees, assignee];
   }
 
   renderColumns(container, board) {
@@ -614,6 +645,7 @@ class WorkTaskBoardView extends ItemView {
   shouldShowTask(task) {
     const query = this.search.trim().toLowerCase();
     if (query && !`${task.title} ${task.note} ${task.assignees.join(" ")} ${task.fileLabel}`.toLowerCase().includes(query)) return false;
+    if (this.selectedAssignees.length && !task.assignees.some((assignee) => this.selectedAssignees.includes(assignee))) return false;
     if (this.filter === "all") return true;
     if (this.filter === "open" && task.status === this.plugin.settings.doneStatus) return false;
     if (this.filter === "overdue") return task.dueDate && task.dueDate < formatDate(new Date()) && task.status !== this.plugin.settings.doneStatus;
@@ -935,6 +967,17 @@ function parseRouteFromPath(filePath, root) {
   const match = relative.match(/^(\d{4})-(\d{2})\/第(\d+)周\.md$/);
   if (!match) return null;
   return { year: Number(match[1]), month: Number(match[2]), week: Number(match[3]) };
+}
+
+function boardAssignees(board, statuses) {
+  const assignees = new Set();
+  for (const status of statuses) for (const task of board.tasks[status]) collectTaskAssignees(task, assignees);
+  return Array.from(assignees).sort((a, b) => a.localeCompare(b));
+}
+
+function collectTaskAssignees(task, assignees) {
+  for (const assignee of task.assignees) assignees.add(assignee);
+  for (const child of task.children) collectTaskAssignees(child, assignees);
 }
 
 function taskTimingClass(task) {
