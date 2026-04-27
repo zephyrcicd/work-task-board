@@ -629,13 +629,14 @@ class WorkTaskBoardView extends ItemView {
     }
     if (task.note) node.createEl("p", { cls: "wtb-task-note", text: task.note });
     const meta = node.createDiv({ cls: "wtb-task-meta" });
-    if (task.startDate) meta.createSpan({ text: `🛫 ${task.startDate}` });
+    const showTaskDates = (task.depth || 1) === 1;
+    if (showTaskDates && task.startDate) meta.createSpan({ text: `🛫 ${task.startDate}` });
     if (task.completionDate) meta.createSpan({ text: `✅ ${task.completionDate}` });
-    meta.createSpan({ text: `📅 ${task.dueDate || "No due date"}` });
+    if (showTaskDates) meta.createSpan({ text: `📅 ${task.dueDate || "No due date"}` });
     if (task.children.length) meta.createSpan({ text: `${countCompletedLeafTasks(task)}/${countLeafTasks(task)} done` });
     for (const assignee of task.assignees.slice(0, 3)) meta.createSpan({ text: `@${assignee}` });
     if (task.assignees.length > 3) meta.createSpan({ text: `+${task.assignees.length - 3}` });
-    if (this.mode === "dashboard") meta.createSpan({ text: task.fileLabel });
+    if (this.mode === "dashboard" && (task.depth || 1) === 1) meta.createSpan({ text: task.fileLabel });
     if (task.children.length) {
       const children = node.createDiv({ cls: "wtb-subtask-list" });
       for (const child of task.children.filter((item) => this.shouldShowTaskTree(item))) this.renderTaskNode(children, child);
