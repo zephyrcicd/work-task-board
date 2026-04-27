@@ -89,7 +89,7 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
         }
       });
     }
-    if (this.settings.openWeeklyBoardAfterCreate) await this.openBoardView(boardFile);
+    if (this.settings.openWeeklyBoardAfterCreate && !task.stayOnCurrentBoard) await this.openBoardView(boardFile);
   }
 
   async updateTask(task, values) {
@@ -658,7 +658,7 @@ class WorkTaskBoardView extends ItemView {
   }
 
   getNewTaskDefaults() {
-    if (this.mode !== "board") return {};
+    if (this.mode === "dashboard") return { stayOnCurrentBoard: true };
     return getDefaultDatesForBoard(this.filePath, this.plugin.settings.boardRoot, this.plugin.settings.weekRule);
   }
 
@@ -681,6 +681,7 @@ class WorkTaskModal extends Modal {
     this.note = initial.note || "";
     this.status = initial.status || plugin.settings.inboxStatus;
     this.completionDate = initial.completionDate || "";
+    this.stayOnCurrentBoard = Boolean(initial.stayOnCurrentBoard);
   }
 
   onOpen() {
@@ -773,7 +774,7 @@ class WorkTaskModal extends Modal {
       this.titleInput.focus();
       return;
     }
-    const values = { title: this.title, startDate: this.startDate, dueDate: this.dueDate, assignees: this.assignees, note: this.note, status: this.status, completionDate: this.completionDate };
+    const values = { title: this.title, startDate: this.startDate, dueDate: this.dueDate, assignees: this.assignees, note: this.note, status: this.status, completionDate: this.completionDate, stayOnCurrentBoard: this.stayOnCurrentBoard };
     if (this.task) await this.plugin.updateTask(this.task, values);
     else if (this.parentTask) await this.plugin.createSubtask(this.parentTask, values);
     else await this.plugin.createTask(values);
