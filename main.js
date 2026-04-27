@@ -566,7 +566,7 @@ class WorkTaskBoardView extends ItemView {
   }
 
   renderTaskCard(container, task) {
-    const card = container.createDiv({ cls: "wtb-task-card", attr: { draggable: String((task.depth || 1) === 1) } });
+    const card = container.createDiv({ cls: ["wtb-task-card", taskTimingClass(task)].filter(Boolean).join(" "), attr: { draggable: String((task.depth || 1) === 1) } });
     if ((task.depth || 1) === 1) {
       card.addEventListener("dragstart", (event) => {
         card.addClass("is-dragging");
@@ -579,7 +579,7 @@ class WorkTaskBoardView extends ItemView {
   }
 
   renderTaskNode(container, task) {
-    const node = container.createDiv({ cls: `wtb-task-node depth-${task.depth || 1}` });
+    const node = container.createDiv({ cls: ["wtb-task-node", `depth-${task.depth || 1}`, taskTimingClass(task)].filter(Boolean).join(" ") });
     node.addEventListener("click", (event) => { event.stopPropagation(); this.plugin.openEditModal(task); });
 
     const titleRow = node.createDiv({ cls: "wtb-task-title-row" });
@@ -935,6 +935,20 @@ function parseRouteFromPath(filePath, root) {
   const match = relative.match(/^(\d{4})-(\d{2})\/第(\d+)周\.md$/);
   if (!match) return null;
   return { year: Number(match[1]), month: Number(match[2]), week: Number(match[3]) };
+}
+
+function taskTimingClass(task) {
+  if (task.done || task.completionDate || !task.dueDate) return "";
+  const today = parseDate(formatDate(new Date()));
+  const dueDate = parseDate(task.dueDate);
+  const startDate = parseDate(task.startDate);
+  if (!today || !dueDate) return "";
+  if (dueDate < today) return "is-overdue";
+  if (startDate && startDate > today) return "";
+  const dueSoonEnd = new Date(today);
+  dueSoonEnd.setDate(today.getDate() + 2);
+  if (dueDate <= dueSoonEnd) return "is-due-soon";
+  return "is-active-safe";
 }
 
 function isThisWeek(value) {
