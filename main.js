@@ -291,7 +291,7 @@ module.exports = class WorkTaskBoardPlugin extends Plugin {
 
   formatTaskLine(task, status, indent = 0) {
     const title = task.title.trim().replace(/\s+/g, " ");
-    const note = (task.note || "").trim().replace(/\s+/g, " ");
+    const note = encodeTaskNote(task.note || "");
     const noteText = note ? ` — ${note}` : "";
     const assigneeText = normalizeAssignees(task.assignees || task.assignee).map((assignee) => ` @${assignee}`).join("");
     const startText = task.startDate ? ` 🛫 ${task.startDate}` : "";
@@ -870,7 +870,7 @@ function parseTask(line, lineIndex, sectionStatus, file, statuses, indent, depth
     status: statusFromMark(mark, statuses),
     done: mark === "x",
     title: title.trim(),
-    note: noteParts.join(" — ").trim(),
+    note: decodeTaskNote(noteParts.join(" — ").trim()),
     assignees,
     startDate,
     completionDate,
@@ -881,6 +881,18 @@ function parseTask(line, lineIndex, sectionStatus, file, statuses, indent, depth
     filePath: file.path,
     fileLabel: file.path.split("/").slice(-2).join("/"),
   };
+}
+
+function encodeTaskNote(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n");
+}
+
+function decodeTaskNote(value) {
+  return String(value || "").replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
 }
 
 function emptyTasks(statuses) {

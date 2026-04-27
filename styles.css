@@ -370,6 +370,7 @@
   font-size: var(--font-ui-small);
   line-height: 1.45;
   text-wrap: pretty;
+  white-space: pre-wrap;
 }
 
 .wtb-task-meta {
