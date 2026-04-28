@@ -1,5 +1,7 @@
 # Work Task Board
 
+[Chinese documentation](README.zh-CN.md)
+
 Work Task Board is a Markdown-first Obsidian plugin for managing work tasks as weekly kanban boards and a cross-week dashboard.
 
 The plugin renders native board views inside Obsidian, while keeping the underlying data as normal Markdown task lines.
@@ -9,7 +11,7 @@ The plugin renders native board views inside Obsidian, while keeping the underly
 - Create work tasks from a ribbon action, command, weekly board, or dashboard.
 - Route tasks into monthly folders and weekly board files by due date.
 - Open weekly Markdown files as native kanban boards.
-- Open `总看板.md` as a dashboard that scans all weekly board files.
+- Open `Dashboard.md` as a dashboard that scans all weekly board files.
 - Manage Todo, Doing, and Done columns.
 - Drag top-level cards between columns.
 - Add nested subtasks up to three levels deep.
@@ -24,7 +26,7 @@ Weekly board files are plain Markdown files under the configured board root.
 Example:
 
 ```markdown
-# 2026-05 第4周工作看板
+# 2026-05 Week 4 Work Board
 
 > Routed by Work Task Board. New tasks land in Todo by due date.
 
@@ -61,12 +63,12 @@ Notes are stored inline after an em dash (`—`). Multi-line notes are preserved
 By default, board files are stored under:
 
 ```text
-工作日志/工作任务看板/
-  总看板.md
+Work/Task Board/
+  Dashboard.md
   2026-04/
-    第4周.md
+    Week 4.md
   2026-05/
-    第1周.md
+    Week 1.md
 ```
 
 The board root folder can be changed in plugin settings.
@@ -76,18 +78,18 @@ The board root folder can be changed in plugin settings.
 The default week rule is date range inside the month:
 
 ```text
-1-7    -> 第1周
-8-14   -> 第2周
-15-21  -> 第3周
-22-28  -> 第4周
-29-31  -> 第5周
+1-7    -> Week 1
+8-14   -> Week 2
+15-21  -> Week 3
+22-28  -> Week 4
+29-31  -> Week 5
 ```
 
 For example:
 
 ```text
-2026-04-26 -> 工作日志/工作任务看板/2026-04/第4周.md
-2026-05-26 -> 工作日志/工作任务看板/2026-05/第4周.md
+2026-04-26 -> Work/Task Board/2026-04/Week 4.md
+2026-05-26 -> Work/Task Board/2026-05/Week 4.md
 ```
 
 A calendar-week option is also available in settings.
@@ -110,7 +112,7 @@ Weekly boards support:
 
 ### Dashboard
 
-`总看板.md` opens automatically as a dashboard board.
+`Dashboard.md` opens automatically as a dashboard board.
 
 The dashboard scans weekly Markdown files under the board root and combines tasks into one native board view. It does not copy tasks into the dashboard file.
 
@@ -144,7 +146,7 @@ Default settings:
 
 ```js
 {
-  boardRoot: "工作日志/工作任务看板",
+  boardRoot: "Work/Task Board",
   inboxStatus: "Todo",
   doingStatus: "Doing",
   doneStatus: "Done",
@@ -190,68 +192,6 @@ LICENSE
 ```
 
 There is no package manager setup or build pipeline yet.
-
-## 中文说明
-
-Work Task Board 是一个 Markdown 优先的 Obsidian 工作任务看板插件，用于把日常工作任务按截止日期自动路由到月度目录和周看板文件中，并提供跨周汇总看板。
-
-插件会在 Obsidian 内渲染原生看板视图，但底层数据仍然是普通 Markdown 任务行，因此即使不使用插件，也可以直接阅读和编辑原始 Markdown 文件。
-
-### 主要功能
-
-- 从 ribbon、命令、周看板或总看板快速创建任务。
-- 根据任务截止日期自动路由到对应月份和周文件。
-- 将周 Markdown 文件自动打开为原生看板视图。
-- 将 `总看板.md` 自动打开为跨周汇总看板。
-- 支持 Todo、Doing、Done 三列。
-- 支持拖拽顶层任务卡片切换状态。
-- 支持最多三层嵌套子任务。
-- 支持开始日期、截止日期、完成日期、负责人和备注。
-- 支持搜索、状态过滤、逾期/本周过滤和负责人多选过滤。
-- 保持 Markdown 作为唯一数据源。
-
-### 数据格式
-
-任务以 Markdown 任务列表保存：
-
-```markdown
-- [ ] 准备发布说明 — 检查相关反馈 @张三 @李四 🛫 2026-05-18 📅 2026-05-22
-  - [ ] 确认变更日志 @张三 📅 2026-05-21
-- [x] 确认周看板路由 ✅ 2026-05-28 📅 2026-05-28
-```
-
-支持的元数据：
-
-- `@name`：负责人，可多个。
-- `🛫 YYYY-MM-DD`：开始日期。
-- `📅 YYYY-MM-DD`：截止日期。
-- `✅ YYYY-MM-DD`：完成日期。
-
-### 默认目录结构
-
-```text
-工作日志/工作任务看板/
-  总看板.md
-  2026-04/
-    第4周.md
-  2026-05/
-    第1周.md
-```
-
-可以在插件设置中修改看板根目录。
-
-### 安装方式
-
-1. 从 GitHub Release 下载 `main.js`、`manifest.json` 和 `styles.css`。
-2. 在 Obsidian vault 中创建目录：
-
-   ```text
-   .obsidian/plugins/work-task-board/
-   ```
-
-3. 将下载的文件放入该目录。
-4. 重启 Obsidian。
-5. 在 Community plugins 中启用 Work Task Board。
 
 ## License
 
